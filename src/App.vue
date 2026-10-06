@@ -243,15 +243,6 @@ watchPostEffect(() => {
       </p>
     </header>
 
-    <section class="hero">
-      <p class="eyebrow">Marca de agua · fecha original · nombre</p>
-      <h1>Firma cada foto con <em>el momento exacto</em> en que la tomaste.</h1>
-      <p class="lede">
-        Leemos la fecha y hora guardadas en los metadatos de la cámara y las estampamos junto a tu nombre.
-        Sin subir nada a ningún servidor.
-      </p>
-    </section>
-
     <main class="layout">
       <!-- ---------- Panel de ajustes ---------- -->
       <aside class="panel">
