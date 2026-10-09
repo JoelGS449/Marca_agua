@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, computed, watch, markRaw } from 'vue'
 import DocumentCard from '../components/DocumentCard.vue'
-import { CancelledError, extractText, isSupported } from '../lib/ocr.js'
+import { CancelledError, extractText, isSupported, textToPdf } from '../lib/ocr.js'
 
 /* ---------- Preferencias ---------- */
 const STORAGE_KEY = 'sello:ocr:v1'
@@ -157,6 +157,14 @@ function download(blob, filename) {
 function downloadPdf(doc) {
   download(doc.result.pdf, `${baseName(doc)}_texto.pdf`)
 }
+async function downloadTextPdf(doc) {
+  try {
+    download(await textToPdf(doc.result.pageTexts, baseName(doc)), `${baseName(doc)}_texto_extraido.pdf`)
+  } catch (e) {
+    console.error(e)
+    notify('No se pudo generar el PDF del texto.')
+  }
+}
 function downloadTxt(doc) {
   download(new Blob([doc.result.text], { type: 'text/plain;charset=utf-8' }), `${baseName(doc)}.txt`)
 }
@@ -201,7 +209,7 @@ async function copyText(doc) {
           <ul class="outputs">
             <li>
               <span class="out-icon" aria-hidden="true">Aa</span>
-              <span><strong>El texto extraído</strong>Para copiarlo o descargarlo como .txt.</span>
+              <span><strong>El texto extraído</strong>Para copiarlo o descargarlo como .txt o PDF.</span>
             </li>
             <li>
               <span class="out-icon" aria-hidden="true">PDF</span>
@@ -272,6 +280,7 @@ async function copyText(doc) {
               @retry="retry(d)"
               @copy="copyText(d)"
               @txt="downloadTxt(d)"
+              @textpdf="downloadTextPdf(d)"
               @pdf="downloadPdf(d)"
             />
           </TransitionGroup>

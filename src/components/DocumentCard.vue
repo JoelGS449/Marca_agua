@@ -4,7 +4,7 @@ import { computed } from 'vue'
 const props = defineProps({
   doc: { type: Object, required: true },
 })
-const emit = defineEmits(['remove', 'retry', 'copy', 'txt', 'pdf'])
+const emit = defineEmits(['remove', 'retry', 'copy', 'txt', 'textpdf', 'pdf'])
 
 const STEPS = {
   render: 'Preparando página',
@@ -94,6 +94,7 @@ const kb = (n) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${M
           Copiar
         </button>
         <button class="btn btn-ghost btn-sm" type="button" :disabled="!doc.result.text" @click="emit('txt')">.txt</button>
+        <button class="btn btn-ghost btn-sm" type="button" :disabled="!doc.result.text" title="PDF que contiene solo el texto extraído" @click="emit('textpdf')">Texto .pdf</button>
         <button class="btn btn-primary btn-sm" type="button" @click="emit('pdf')">
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
           PDF con texto

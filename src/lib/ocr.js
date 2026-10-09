@@ -52,7 +52,7 @@ async function getWorker(lang) {
  *
  * @param {File} file
  * @param {{ lang: string, onStatus?: (s: { page: number, pages: number, step: string, progress: number }) => void, isCancelled?: () => boolean }} opts
- * @returns {Promise<{ text: string, pages: number, ocrPages: number, confidence: number | null, pdf: Blob, thumb: string }>}
+ * @returns {Promise<{ text: string, pageTexts: string[], pages: number, ocrPages: number, confidence: number | null, pdf: Blob, thumb: string }>}
  */
 export async function extractText(file, { lang, onStatus = () => {}, isCancelled = () => false }) {
   const pages = isPdf(file) ? await openPdf(file) : await openImage(file)
@@ -109,6 +109,7 @@ export async function extractText(file, { lang, onStatus = () => {}, isCancelled
 
   return {
     text,
+    pageTexts: texts,
     pages: pages.count,
     ocrPages: confidences.length,
     confidence: confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : null,
@@ -118,6 +119,97 @@ export async function extractText(file, { lang, onStatus = () => {}, isCancelled
 }
 
 export class CancelledError extends Error {}
+
+/* ---------- PDF solo con el texto extraído ---------- */
+const PAGE_W = 612 // Carta, en puntos.
+const PAGE_H = 792
+const MARGIN = 64
+const BODY_SIZE = 11
+const LEADING = 15.5
+
+/**
+ * Genera un PDF limpio que contiene únicamente el texto extraído, con un encabezado por página del original.
+ *
+ * @param {string[]} pageTexts Texto de cada página del documento original.
+ * @param {string} title
+ * @returns {Promise<Blob>}
+ */
+export async function textToPdf(pageTexts, title) {
+  const doc = await PDFDocument.create()
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold)
+  const charset = new Set(font.getCharacterSet())
+  const maxWidth = PAGE_W - MARGIN * 2
+
+  let page
+  let y
+  const newPage = () => {
+    page = doc.addPage([PAGE_W, PAGE_H])
+    y = PAGE_H - MARGIN
+  }
+  const ensure = (h) => {
+    if (y - h < MARGIN) newPage()
+  }
+  const draw = (text, f, size, gap) => {
+    ensure(gap)
+    y -= gap
+    page.drawText(text, { x: MARGIN, y, size, font: f })
+  }
+
+  newPage()
+  for (const line of wrap(sanitize(title, charset), bold, 16, maxWidth)) draw(line, bold, 16, 20)
+  y -= 10
+
+  const multi = pageTexts.length > 1
+  pageTexts.forEach((raw, i) => {
+    if (multi) {
+      y -= i ? 14 : 4
+      draw(`Página ${i + 1}`, bold, 9.5, 14)
+      y -= 6
+    }
+    const text = raw.trim()
+    if (!text) {
+      draw('(Sin texto en esta página)', font, BODY_SIZE, LEADING)
+      return
+    }
+    for (const para of text.split(/\r?\n/)) {
+      const clean = sanitize(para.replace(/\t/g, '    '), charset).trimEnd()
+      if (!clean) {
+        y -= LEADING * 0.6
+        continue
+      }
+      for (const line of wrap(clean, font, BODY_SIZE, maxWidth)) draw(line, font, BODY_SIZE, LEADING)
+    }
+  })
+
+  doc.setTitle(title)
+  doc.setProducer('Sello')
+  return new Blob([await doc.save()], { type: 'application/pdf' })
+}
+
+/** Corta un párrafo en líneas que caben en el ancho; las palabras demasiado largas se parten. */
+function wrap(text, font, size, maxWidth) {
+  const fits = (s) => font.widthOfTextAtSize(s, size) <= maxWidth
+  const lines = []
+  let current = ''
+  for (const word of text.split(/ +/)) {
+    const candidate = current ? `${current} ${word}` : word
+    if (fits(candidate)) {
+      current = candidate
+      continue
+    }
+    if (current) lines.push(current)
+    current = word
+    while (!fits(current)) {
+      let n = current.length - 1
+      while (n > 1 && !fits(current.slice(0, n))) n--
+      lines.push(current.slice(0, n))
+      current = current.slice(n)
+    }
+  }
+  if (current) lines.push(current)
+  return lines
+}
 
 /* ---------- Entrada: PDF ---------- */
 async function openPdf(file) {
