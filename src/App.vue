@@ -1,10 +1,13 @@
 <script setup>
 import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount } from 'vue'
 import WatermarkTool from './tools/WatermarkTool.vue'
+import LoginView from './views/LoginView.vue'
+import { sesion, cerrarSesion, restaurarSesion } from './lib/auth'
 
 /*
  * Actividades disponibles. Para agregar una nueva:
- * crea su componente en src/tools/ y agrega una entrada aquí.
+ * crea su componente en src/tools/, agrega una entrada aquí y da de alta
+ * una Herramienta con el mismo slug en el admin de Django.
  */
 const TOOLS = [
   {
@@ -23,17 +26,29 @@ const TOOLS = [
   },
 ]
 
-const fromHash = () => TOOLS.find((t) => `#/${t.id}` === location.hash)?.id ?? TOOLS[0].id
-const activeId = ref(fromHash())
-const active = computed(() => TOOLS.find((t) => t.id === activeId.value))
+// Solo las herramientas que el perfil del usuario tiene permitidas.
+const tools = computed(() => TOOLS.filter((t) => sesion.usuario?.herramientas.includes(t.id)))
 
-const onHash = () => (activeId.value = fromHash())
-onMounted(() => addEventListener('hashchange', onHash))
+const hash = ref(location.hash)
+const active = computed(() => tools.value.find((t) => `#/${t.id}` === hash.value) ?? tools.value[0])
+const activeId = computed(() => active.value?.id)
+
+const onHash = () => (hash.value = location.hash)
+onMounted(() => {
+  addEventListener('hashchange', onHash)
+  restaurarSesion()
+})
 onBeforeUnmount(() => removeEventListener('hashchange', onHash))
 </script>
 
 <template>
-  <div class="app">
+  <div v-if="!sesion.lista" class="login-loading"><span class="spinner" aria-label="Cargando" /></div>
+
+  <div v-else-if="!sesion.usuario" class="app">
+    <LoginView />
+  </div>
+
+  <div v-else class="app">
     <header class="topbar">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"><i /></span>
@@ -42,7 +57,7 @@ onBeforeUnmount(() => removeEventListener('hashchange', onHash))
 
       <nav class="tabs" aria-label="Actividades">
         <a
-          v-for="t in TOOLS"
+          v-for="t in tools"
           :key="t.id"
           class="tab"
           :class="{ active: t.id === activeId }"
@@ -59,14 +74,27 @@ onBeforeUnmount(() => removeEventListener('hashchange', onHash))
         <span class="note-long">Tus archivos nunca salen de tu dispositivo</span>
         <span class="note-short">100% privado</span>
       </p>
+
+      <div class="user-menu">
+        <span class="user-name">
+          {{ sesion.usuario.nombre }}
+          <small v-if="sesion.usuario.perfil">{{ sesion.usuario.perfil }}</small>
+        </span>
+        <button class="btn btn-ghost btn-sm" @click="cerrarSesion">Salir</button>
+      </div>
     </header>
+
+    <p v-if="!active" class="empty-tools">
+      Tu perfil todavía no tiene herramientas asignadas. Pide acceso a quien administra Sello.
+    </p>
+
 
     <!-- KeepAlive conserva las fotos y documentos al cambiar de actividad -->
     <KeepAlive>
-      <component :is="active.component" :key="active.id" />
+      <component :is="active.component" v-if="active" :key="active.id" />
     </KeepAlive>
 
-    <footer class="foot">
+    <footer v-if="active" class="foot">
       <span v-for="line in active.foot" :key="line">{{ line }}</span>
     </footer>
   </div>
