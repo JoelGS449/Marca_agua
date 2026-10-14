@@ -70,6 +70,30 @@ export async function iniciarSesion(username, password) {
   }
   if (res.status === 429) throw new Error('Demasiados intentos. Espera un minuto.')
   if (!res.ok) throw new Error('Usuario o contraseña incorrectos.')
+  abrirSesion(data)
+}
+
+/**
+ * Crea la cuenta y deja la sesión iniciada. Si el backend rechaza algún campo,
+ * el error trae `campos` con los mensajes por campo (email, username, password…).
+ */
+export async function registrarse(datos) {
+  let res, data
+  try {
+    ;({ res, data } = await post('/api/auth/registro/', datos))
+  } catch {
+    throw new Error('No se pudo conectar con el servidor.')
+  }
+  if (res.status === 429) throw new Error('Demasiados registros desde esta red. Intenta más tarde.')
+  if (!res.ok) {
+    const error = new Error('Revisa los datos marcados.')
+    error.campos = Object.fromEntries(Object.entries(data).map(([k, v]) => [k, [].concat(v).join(' ')]))
+    throw error
+  }
+  abrirSesion(data)
+}
+
+function abrirSesion(data) {
   tokens = { access: data.access, refresh: data.refresh }
   guardarTokens(tokens)
   sesion.usuario = data.usuario
