@@ -24,6 +24,14 @@ const TOOLS = [
     component: defineAsyncComponent(() => import('./tools/OcrTool.vue')),
     foot: ['Sello — para no volver a transcribir a mano.', 'El reconocimiento de texto funciona mejor con escaneos nítidos.'],
   },
+  {
+    id: 'reporte',
+    label: 'Reporte fotográfico',
+    short: 'Reporte',
+    // La librería de Word solo se descarga al generar el documento.
+    component: defineAsyncComponent(() => import('./tools/ReportTool.vue')),
+    foot: ['Sello — tus fotos en orden, listas para entregar.', 'El documento se abre en Word y en Google Docs.'],
+  },
 ]
 
 // Solo las herramientas que el perfil del usuario tiene permitidas.

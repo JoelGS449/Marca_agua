@@ -1,40 +1,14 @@
 <script setup>
-import { ref, reactive, computed, watch, watchPostEffect, onMounted, markRaw } from 'vue'
+import { ref, toRef, computed, watchPostEffect, onMounted, markRaw } from 'vue'
 import JSZip from 'jszip'
 import PhotoCard from '../components/PhotoCard.vue'
 import { readTakenDate } from '../lib/exif.js'
+import { sello } from '../lib/preferencias.js'
 import { fontsReady, formatDate, makeDemoSource, makePreview, renderWatermark, withImage } from '../lib/watermark.js'
 
-/* ---------- Preferencias (se recuerdan en este navegador) ---------- */
-const STORAGE_KEY = 'sello:v2'
-const saved = (() => {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}
-  } catch {
-    return {}
-  }
-})()
-
-const name = ref(saved.name ?? '')
-const settings = reactive({
-  style: 'editorial',
-  position: 'br',
-  scale: 1,
-  opacity: 0.95,
-  color: '#fdf8f0',
-  dateFormat: 'long',
-  showTime: true,
-  ...saved.settings,
-})
-watch(
-  [name, settings],
-  () => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: name.value, settings }))
-    } catch {}
-  },
-  { deep: true },
-)
+/* ---------- Preferencias (compartidas con el reporte) ---------- */
+const name = toRef(sello, 'name')
+const settings = sello.settings
 
 const STYLES = [
   { id: 'editorial', label: 'Editorial', hint: 'Serif con firma', preset: { color: '#fdf8f0', dateFormat: 'long' } },

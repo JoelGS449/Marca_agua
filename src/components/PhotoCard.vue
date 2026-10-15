@@ -7,6 +7,9 @@ const props = defineProps({
   settings: { type: Object, required: true },
   name: { type: String, default: '' },
   busy: Boolean,
+  // Etiqueta opcional sobre la foto (p. ej. su lugar en el reporte).
+  tag: { type: String, default: '' },
+  savable: { type: Boolean, default: true },
 })
 const emit = defineEmits(['remove', 'save', 'date'])
 
@@ -47,6 +50,7 @@ function onDate(e) {
         <small>{{ photo.file.name }}</small>
         <small>Prueba exportándola como JPG.</small>
       </div>
+      <span v-if="tag && photo.status === 'ready'" class="card-tag">{{ tag }}</span>
       <button class="card-remove" type="button" aria-label="Quitar foto" @click="emit('remove')">
         <svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
       </button>
@@ -69,7 +73,7 @@ function onDate(e) {
           @change="onDate"
         />
       </div>
-      <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="emit('save')">
+      <button v-if="savable" class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="emit('save')">
         <span v-if="busy" class="spinner" aria-hidden="true" />
         <svg v-else viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
         {{ busy ? 'Procesando' : 'Guardar' }}
