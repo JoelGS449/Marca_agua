@@ -1,27 +1,28 @@
 <script setup>
-import { ref, computed, watch, markRaw } from 'vue'
+import { ref, reactive, computed, watch, markRaw } from 'vue'
 import PhotoCard from '../components/PhotoCard.vue'
+import ReportPreview from '../components/ReportPreview.vue'
 import { readTakenDate } from '../lib/exif.js'
 import { sello } from '../lib/preferencias.js'
-import { cronologico, crearReporte } from '../lib/reporte.js'
+import { CAMPOS_PORTADA, crearReporte, cronologico, paginar, porDia, rangoFechas, tituloDia } from '../lib/reporte.js'
 import { fontsReady, makePreview, withImage } from '../lib/watermark.js'
 
 const STYLE_LABELS = { editorial: 'Editorial', film: 'Rollo', glass: 'Cápsula', frame: 'Marco' }
 
-/* ---------- Título (se recuerda en este navegador) ---------- */
-const STORAGE_KEY = 'sello:reporte:v1'
-const titulo = ref(
-  (() => {
-    try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY))?.titulo ?? ''
-    } catch {
-      return ''
-    }
-  })(),
-)
-watch(titulo, () => {
+/* ---------- Portada (se recuerda en este navegador, salvo la fecha) ---------- */
+const STORAGE_KEY = 'sello:reporte:v2'
+const saved = (() => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ titulo: titulo.value }))
+    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}
+  } catch {
+    return {}
+  }
+})()
+const portada = reactive(Object.fromEntries(CAMPOS_PORTADA.map((c) => [c.id, c.id === 'fecha' ? '' : (saved[c.id] ?? '')])))
+watch(portada, () => {
+  try {
+    const { fecha, ...resto } = portada
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(resto))
   } catch {}
 })
 
@@ -29,14 +30,20 @@ watch(titulo, () => {
 let uid = 0
 const photos = ref([])
 const readyPhotos = computed(() => photos.value.filter((p) => p.status === 'ready'))
-// Las que aún cargan o fallaron van al final; las listas, por fecha.
-const ordered = computed(() => [...cronologico(readyPhotos.value), ...photos.value.filter((p) => p.status !== 'ready')])
+const orden = computed(() => cronologico(readyPhotos.value))
+const dias = computed(() => porDia(orden.value))
+const pendientes = computed(() => photos.value.filter((p) => p.status !== 'ready'))
 const sinExif = computed(() => readyPhotos.value.filter((p) => p.source === 'file').length)
 const loading = computed(() => photos.value.some((p) => p.status === 'loading'))
+const textos = reactive({})
 const dragging = ref(false)
 const progress = ref(null)
 const toast = ref(null)
 const fileInput = ref(null)
+
+const rango = computed(() => rangoFechas(orden.value))
+// Si la fecha de la portada se deja vacía, se usa el rango de las fotos.
+const portadaFinal = computed(() => ({ ...portada, fecha: portada.fecha.trim() || rango.value }))
 
 let toastTimer
 function notify(msg) {
@@ -46,11 +53,10 @@ function notify(msg) {
 }
 
 function tagFor(p) {
-  const list = readyPhotos.value
-  if (p.status !== 'ready' || !list.length) return ''
-  const i = ordered.value.indexOf(p)
-  if (list.length > 1 && i === 0) return 'Primera'
-  if (list.length > 1 && i === list.length - 1) return 'Última'
+  const n = orden.value.length
+  const i = orden.value.indexOf(p)
+  if (n > 1 && i === 0) return 'Primera'
+  if (n > 1 && i === n - 1) return 'Última'
   return `#${i + 1}`
 }
 
@@ -97,9 +103,13 @@ function removePhoto(id) {
 }
 function clearAll() {
   photos.value = []
+  for (const k in textos) delete textos[k]
 }
 
-/* ---------- Documento ---------- */
+/* ---------- Vista previa y documento ---------- */
+const previewOpen = ref(false)
+const hojas = computed(() => (previewOpen.value ? paginar({ photos: readyPhotos.value, textos, sello }) : []))
+
 function download(blob, filename) {
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
@@ -111,8 +121,8 @@ function download(blob, filename) {
 }
 
 const fileName = () => {
-  const base = (titulo.value.trim() || 'Reporte fotográfico').replace(/[\\/:*?"<>|]+/g, '').slice(0, 80)
-  const d = new Date()
+  const base = `Reporte ${portada.escuela.trim() || 'fotográfico'}`.replace(/[\\/:*?"<>|]+/g, '').slice(0, 80)
+  const d = orden.value[0]?.date ?? new Date()
   return `${base} ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.docx`
 }
 
@@ -123,7 +133,8 @@ async function generar() {
   try {
     const blob = await crearReporte({
       photos: list,
-      titulo: titulo.value,
+      portada: portadaFinal.value,
+      textos,
       sello,
       onProgress: (done) => (progress.value.done = done),
     })
@@ -149,16 +160,21 @@ async function generar() {
     <main class="layout">
       <!-- ---------- Panel de ajustes ---------- -->
       <aside class="panel">
-        <div class="field f-title">
-          <label class="label" for="titulo"><span class="step">01</span>Título del reporte</label>
-          <input
-            id="titulo"
-            v-model="titulo"
-            class="name-input"
-            type="text"
-            placeholder="Reporte fotográfico"
-            maxlength="80"
-          />
+        <div class="field f-cover">
+          <span class="label"><span class="step">01</span>Portada</span>
+          <div class="cover-form">
+            <label v-for="c in CAMPOS_PORTADA" :key="c.id" class="cover-field">
+              <span>{{ c.multiline ? 'Valor, objetivo o factor de riesgo de la semana' : c.label.charAt(0) + c.label.slice(1).toLowerCase() }}</span>
+              <textarea v-if="c.multiline" v-model="portada[c.id]" class="form-input" rows="3" />
+              <input
+                v-else
+                v-model="portada[c.id]"
+                class="form-input"
+                :placeholder="c.id === 'fecha' ? rango || 'Se toma de las fotos' : ''"
+              />
+            </label>
+          </div>
+          <p class="field-note">Si dejas la fecha vacía se usa el rango de las fotos. Los demás datos se recuerdan para la próxima semana.</p>
         </div>
 
         <div class="field f-seal">
@@ -178,11 +194,15 @@ async function generar() {
           <ul class="outputs">
             <li>
               <span class="out-icon" aria-hidden="true">1</span>
-              <span><strong>Primera hoja</strong>La primera y la última foto, con el rango de fechas.</span>
+              <span><strong>Portada</strong>Con los datos de arriba.</span>
             </li>
             <li>
-              <span class="out-icon" aria-hidden="true">2+</span>
-              <span><strong>Registro cronológico</strong>Las demás fotos de la más antigua a la más reciente, dos por hoja.</span>
+              <span class="out-icon" aria-hidden="true">2</span>
+              <span><strong>Primera y última foto</strong>Las dos puntas de la semana.</span>
+            </li>
+            <li>
+              <span class="out-icon" aria-hidden="true">3+</span>
+              <span><strong>Un apartado por día</strong>Su cuadro de texto y sus fotos en orden.</span>
             </li>
           </ul>
           <p class="field-note">Se descarga como Word (.docx). Para abrirlo en Google Docs, súbelo a Google Drive y ábrelo con Documentos de Google.</p>
@@ -202,62 +222,100 @@ async function generar() {
           </span>
           <span class="dz-text">
             <strong>{{ photos.length ? 'Agregar más fotos' : 'Suelta todas las fotos aquí' }}</strong>
-            <span>Se ordenan solas por la fecha en que se tomaron</span>
+            <span>Se ordenan y agrupan por día solas</span>
           </span>
           <span class="btn btn-primary dz-btn">Elegir fotos</span>
         </label>
 
         <div v-if="!photos.length" class="demo">
           <ol class="steps">
-            <li><b>1</b>Configura tu nombre y estilo en Marca de agua.</li>
-            <li><b>2</b>Sube todas las fotos: se ordenan por su fecha.</li>
-            <li><b>3</b>Revisa el orden y descarga el reporte en Word.</li>
+            <li><b>1</b>Llena los datos de la portada.</li>
+            <li><b>2</b>Sube todas las fotos: se agrupan por día.</li>
+            <li><b>3</b>Escribe el texto de cada día, revisa la vista previa y descarga.</li>
           </ol>
         </div>
 
         <template v-else>
           <div class="toolbar">
             <div class="toolbar-info">
-              <strong>{{ photos.length }} {{ photos.length === 1 ? 'foto' : 'fotos' }}</strong>
+              <strong>
+                {{ photos.length }} {{ photos.length === 1 ? 'foto' : 'fotos' }}<template v-if="dias.length">
+                  · {{ dias.length }} {{ dias.length === 1 ? 'día' : 'días' }}</template>
+              </strong>
               <span v-if="sinExif" class="warn-text">{{ sinExif }} sin fecha de cámara: revisa su fecha, define el orden</span>
               <span v-else-if="readyPhotos.length">En orden cronológico</span>
             </div>
             <div class="toolbar-actions">
               <button class="btn btn-ghost" type="button" @click="clearAll">Limpiar</button>
-              <button class="btn btn-primary" type="button" :disabled="!readyPhotos.length || loading || !!progress" @click="generar">
-                <span v-if="progress" class="spinner" aria-hidden="true" />
-                {{ progress ? `Preparando ${progress.done}/${progress.total}` : 'Descargar Word' }}
+              <button class="btn btn-primary" type="button" :disabled="!readyPhotos.length || loading" @click="previewOpen = true">
+                Vista previa
               </button>
             </div>
           </div>
 
-          <TransitionGroup name="pop" tag="div" class="grid">
-            <PhotoCard
-              v-for="p in ordered"
-              :key="p.id"
-              :photo="p"
-              :settings="sello.settings"
-              :name="sello.name"
-              :tag="tagFor(p)"
-              :savable="false"
-              @remove="removePhoto(p.id)"
-              @date="(d) => { p.date = d; p.source = 'manual' }"
-            />
-          </TransitionGroup>
+          <div class="day-groups">
+            <section v-for="dia in dias" :key="dia.key" class="day">
+              <header class="day-head">
+                <h3>{{ tituloDia(dia.date) }}</h3>
+                <span>{{ dia.photos.length }} {{ dia.photos.length === 1 ? 'foto' : 'fotos' }}</span>
+              </header>
+              <label class="day-text">
+                <span class="sr-only">Texto del {{ tituloDia(dia.date) }}</span>
+                <textarea
+                  v-model="textos[dia.key]"
+                  class="form-input"
+                  rows="3"
+                  placeholder="Texto de este día (aparece en un cuadro arriba de sus fotos; puedes cambiarlo después en el documento)"
+                />
+              </label>
+              <TransitionGroup name="pop" tag="div" class="grid">
+                <PhotoCard
+                  v-for="p in dia.photos"
+                  :key="p.id"
+                  :photo="p"
+                  :settings="sello.settings"
+                  :name="sello.name"
+                  :tag="tagFor(p)"
+                  :savable="false"
+                  @remove="removePhoto(p.id)"
+                  @date="(d) => { p.date = d; p.source = 'manual' }"
+                />
+              </TransitionGroup>
+            </section>
+
+            <div v-if="pendientes.length" class="grid">
+              <PhotoCard
+                v-for="p in pendientes"
+                :key="p.id"
+                :photo="p"
+                :settings="sello.settings"
+                :name="sello.name"
+                :savable="false"
+                @remove="removePhoto(p.id)"
+              />
+            </div>
+          </div>
         </template>
       </section>
     </main>
 
     <!-- Barra fija en móvil -->
     <Transition name="fade">
-      <div v-if="readyPhotos.length" class="mobile-bar">
+      <div v-if="readyPhotos.length && !previewOpen" class="mobile-bar">
         <span>{{ readyPhotos.length }} {{ readyPhotos.length === 1 ? 'foto' : 'fotos' }}</span>
-        <button class="btn btn-primary" type="button" :disabled="loading || !!progress" @click="generar">
-          <span v-if="progress" class="spinner" aria-hidden="true" />
-          {{ progress ? `${progress.done}/${progress.total}` : 'Descargar Word' }}
-        </button>
+        <button class="btn btn-primary" type="button" :disabled="loading" @click="previewOpen = true">Vista previa</button>
       </div>
     </Transition>
+
+    <ReportPreview
+      v-if="previewOpen"
+      :hojas="hojas"
+      :portada="portadaFinal"
+      :sello="sello"
+      :progress="progress"
+      @close="previewOpen = false"
+      @download="generar"
+    />
 
     <Transition name="fade">
       <div v-if="dragging" class="drag-overlay" aria-hidden="true">

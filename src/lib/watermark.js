@@ -104,6 +104,16 @@ function anchor(pos, W, H, bw, bh, m) {
   return { x, y }
 }
 
+/** Proporción (ancho / alto) de la foto ya sellada: el estilo Marco agrega borde. */
+export function outputRatio(w, h, opts) {
+  if (opts.style !== 'frame') return w / h
+  const base = Math.min(w, h)
+  const u = base * 0.036 * (opts.scale || 1)
+  const b = Math.round(base * 0.04)
+  const bar = Math.round(u * 2.6 + b * 1.6)
+  return (w + b * 2) / (h + b + bar)
+}
+
 /**
  * Dibuja la foto con la marca de agua en `canvas`.
  * opts: { name, date, style, position, scale, opacity, color, dateFormat, showTime }
